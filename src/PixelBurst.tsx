@@ -6,6 +6,7 @@ const BLOCK_SIZE = 4;
 const ANIMATION_DURATION_MS = 600;
 const SHADE_INTERVALS_MS = 80;
 const SHADE_PALETTE = [20, 75, 130, 185, 235];
+const PIXEL_ROWS = 4;
 
 
 // inputs to pixel burst 
@@ -29,6 +30,8 @@ export function PixelBurst ({ text }: PixelBurstProps) {
     const blocksRef = useRef<PixelBlock[]>([]);
     const animationFrameRef = useRef<number | null>(null);
     const animationStartRef = useRef<number | null>(null);
+    const pixelSizeRef = useRef(1);
+    const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
     const animatedBlocks = (timestamp: number) => {
         // animation
@@ -130,6 +133,8 @@ export function PixelBurst ({ text }: PixelBurstProps) {
         canvasElement.width = Math.ceil(labelRect.width);
         canvasElement.height = Math.ceil(labelRect.height);
 
+        pixelSizeRef.current = Math.max(1, canvasElement.height / PIXEL_ROWS);
+
         // give canvas drawing tools 
         const context = canvasElement.getContext("2d");
 
@@ -152,8 +157,69 @@ export function PixelBurst ({ text }: PixelBurstProps) {
         const topSpace = (canvasElement.height - textHeight) / 2;
         const baselineY = topSpace + textMetrics.actualBoundingBoxAscent;
 
-        context.fillStyle = "rgba(0, 100, 255, 0.7)";
+        context.fillStyle = labelStyle.color;
         context.fillText(text, 0, baselineY);
+
+        const sampleCanvas = sampleCanvasRef.current ?? document.createElement("canvas");
+
+        sampleCanvasRef.current = sampleCanvas;
+
+        const pixelSize = pixelSizeRef.current;
+        const sampleHeight = PIXEL_ROWS;
+        const sampleWidth = Math.max(1, Math.ceil(canvasElement.width/pixelSize));
+
+        sampleCanvas.width = sampleWidth;
+        sampleCanvas.height = sampleHeight;
+
+        const sampleContext = sampleCanvas.getContext("2d", {willReadFrequently: true});
+        if(!sampleContext)
+            return;
+
+        sampleContext.clearRect(
+            0,
+            0,
+            sampleWidth,
+            sampleHeight,
+        );
+
+        sampleContext.drawImage(
+            canvasElement,
+            0,
+            0,
+            canvasElement.width,
+            canvasElement.height,
+            0,
+            0,
+            sampleWidth,
+            sampleHeight
+        );
+
+        const sampleData = sampleContext.getImageData(
+            0,
+            0,
+            sampleWidth,
+            sampleHeight,
+        );
+
+        const sampledBlocks: PixelBlock[] = [];
+
+        for (let y = 0; y < sampleHeight; y += 1)
+        {
+            for (let x = 0; x < sampleWidth; y += 1)
+            {
+                const sampleIndex = (y * sampleWidth + x) * 4;
+                const alpha = sampleData.data[sampleIndex + 3];
+                if (alpha < 12) // anti aliasing can make faint edges wihich will catch if checking 0
+                    continue;
+                sampledBlocks.push({
+                    x: x * pixelSize,
+                    y: y * pixelSize,
+                    alpha,
+                });
+            }
+        }
+
+        console.log({ sampledBlocks });
 
         const imageData = context.getImageData(
             0, 
